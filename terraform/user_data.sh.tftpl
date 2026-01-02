@@ -1,0 +1,124 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y amazon-ssm-agent || yum install -y amazon-ssm-agent
+systemctl enable --now amazon-ssm-agent
+systemctl restart amazon-ssm-agent || true
+
+dnf -y makecache
+dnf -y install --allowerasing wget curl
+
+# --------------------------
+# Install Node Exporter
+# --------------------------
+NODE_EXPORTER_VERSION="1.7.0"
+useradd --no-create-home --shell /sbin/nologin node_exporter || true
+
+cd /tmp
+wget -q https://github.com/prometheus/node_exporter/releases/download/v$NODE_EXPORTER_VERSION/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz
+tar -xzf node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz
+mv node_exporter-$NODE_EXPORTER_VERSION.linux-amd64/node_exporter /usr/local/bin/node_exporter
+chown node_exporter:node_exporter /usr/local/bin/node_exporter
+
+cat >/etc/systemd/system/node_exporter.service <<'EOF'
+[Unit]
+Description=Prometheus Node Exporter
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# --------------------------
+# Install AWS Distro for OpenTelemetry Collector (ADOT)
+# --------------------------
+# Install ADOT collector
+cd /tmp
+wget -q -O aws-otel-collector.rpm https://aws-otel-collector.s3.amazonaws.com/amazon_linux/amd64/latest/aws-otel-collector.rpm
+dnf install -y ./aws-otel-collector.rpm
+
+# Ensure config dir exists (safe even if already created by RPM)
+mkdir -p /opt/aws/aws-otel-collector/etc
+
+# Write config to the path used by the systemd unit
+cat >/opt/aws/aws-otel-collector/etc/config.yaml <<EOF
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: node_exporter
+          static_configs:
+            - targets: ["127.0.0.1:9100"]
+
+exporters:
+  prometheusremotewrite:
+    endpoint: ${amp_remote_write_url}
+    auth:
+      authenticator: sigv4auth
+
+extensions:
+  sigv4auth:
+    region: ${AWS_REGION}
+    service: aps
+
+service:
+  extensions: [sigv4auth]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [prometheusremotewrite]
+EOF
+
+systemctl enable --now aws-otel-collector
+systemctl restart aws-otel-collector
+# ADOT default config path expected by systemd
+mkdir -p /opt/aws/aws-otel-collector/etc
+
+
+
+# CloudWatch agent config: ship key logs to the log group created by Terraform
+cd /tmp
+wget -q https://amazoncloudwatch-agent.s3.amazonaws.com/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+dnf install -y ./amazon-cloudwatch-agent.rpm
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'EOF'
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/messages",
+            "log_group_name": "/monitoring-test/system",
+            "log_stream_name": "{instance_id}-messages",
+            "timestamp_format": "%b %d %H:%M:%S"
+          },
+          {
+            "file_path": "/var/log/cloud-init-output.log",
+            "log_group_name": "/monitoring-test/system",
+            "log_stream_name": "{instance_id}-cloud-init"
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  -s
+
+systemctl enable --now amazon-cloudwatch-agent

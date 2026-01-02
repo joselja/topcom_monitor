@@ -1,0 +1,40 @@
+{
+  "widgets": [
+    {
+      "type": "log",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "ADOT Collector logs",
+        "region": "eu-west-1",
+        "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @logStream, @message | filter @logStream like /adot/ | sort @timestamp desc | limit 50"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 6,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "CloudWatch Agent logs",
+        "region": "eu-west-1",
+        "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @logStream, @message | filter @logStream like /cwagent/ | sort @timestamp desc | limit 50"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 12,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "System logs (messages)",
+        "region": "eu-west-1",
+        "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @logStream, @message | sort @timestamp desc | limit 50"
+      }
+    }
+  ]
+}
