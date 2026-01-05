@@ -452,30 +452,6 @@ Next natural extensions:
 
 At scale, the same architecture applies unchanged.
 
----
-
-### 6. EKS and Kubernetes Monitoring
-
-This stack evolves naturally to Kubernetes:
-
-- ADOT Collector as DaemonSet
-- AMP as central metrics backend
-- Same Grafana dashboards
-- Additional dashboards:
-  - kube‑state‑metrics
-  - container CPU/memory
-  - pod restarts
-
----
-
-### Recommended Alerting Strategy (Summary)
-
-| Layer         | Tool                 | Purpose                    |
-| ------------- | -------------------- | -------------------------- |
-| Metrics       | AMP Alert Rules      | Core infrastructure alerts |
-| Routing       | Managed Alertmanager | Notification delivery      |
-| Visualization | Grafana Alerts       | Quick / UI‑driven alerts   |
-| Logs          | CloudWatch Alarms    | Log‑based incidents        |
 
 
 
